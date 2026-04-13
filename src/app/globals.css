@@ -1,26 +1,114 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --font-headline: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-label: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-background: #f7f9ff;
+  --color-surface: #f7f9ff;
+  --color-surface-bright: #f7f9ff;
+  --color-surface-dim: #d2dbe6;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #ecf4ff;
+  --color-surface-container: #e6effa;
+  --color-surface-container-high: #e0e9f5;
+  --color-surface-container-highest: #dae3ef;
+  --color-surface-variant: #dae3ef;
+
+  --color-primary: #006b22;
+  --color-primary-container: #01872e;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #f7fff1;
+  --color-primary-fixed: #8bfb91;
+  --color-primary-fixed-dim: #6fdd78;
+  --color-on-primary-fixed: #002106;
+  --color-on-primary-fixed-variant: #005319;
+  --color-inverse-primary: #6fdd78;
+  --color-surface-tint: #006e23;
+
+  --color-secondary: #5a5f66;
+  --color-secondary-container: #dee3eb;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #60656c;
+  --color-secondary-fixed: #dee3eb;
+  --color-secondary-fixed-dim: #c2c7cf;
+  --color-on-secondary-fixed: #171c22;
+  --color-on-secondary-fixed-variant: #42474e;
+
+  --color-tertiary: #545d66;
+  --color-tertiary-container: #6c757f;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #fdfcff;
+  --color-tertiary-fixed: #dae3ef;
+  --color-tertiary-fixed-dim: #bec7d2;
+  --color-on-tertiary-fixed: #141c25;
+  --color-on-tertiary-fixed-variant: #3f4851;
+
+  --color-on-surface: #141c25;
+  --color-on-surface-variant: #3e4a3d;
+  --color-on-background: #141c25;
+
+  --color-inverse-on-surface: #e9f2fd;
+  --color-inverse-surface: #29313a;
+
+  --color-outline: #6e7a6b;
+  --color-outline-variant: #becab9;
+
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  --radius-sm: 0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+  --radius-full: 0.75rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-on-background);
+  font-family: var(--font-body);
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+.material-symbols-outlined.filled {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.map-gradient-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(247, 249, 255, 0.4) 0%,
+    rgba(247, 249, 255, 0) 20%
+  );
 }
