@@ -14,7 +14,8 @@ type Props = {
   mapContainerRef: RefObject<HTMLDivElement | null>;
 };
 
-const CAPTURE_SIZE = 640;
+const CAPTURE_SIZE = 512;
+const CAPTURE_PIXEL_RATIO = 2;
 
 function computeCenteredRect(container: HTMLElement): CapturedRect {
   const r = container.getBoundingClientRect();
@@ -44,7 +45,7 @@ async function captureCenterSquare(
 ): Promise<string> {
   const fullDataUrl = await toPng(container, {
     cacheBust: true,
-    pixelRatio: 1,
+    pixelRatio: CAPTURE_PIXEL_RATIO,
     skipFonts: true,
   });
   const img = await loadImage(fullDataUrl);

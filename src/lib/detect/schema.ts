@@ -5,7 +5,7 @@ const NormalizedPoint = z
   .tuple([z.number().min(0).max(1), z.number().min(0).max(1)]);
 
 export const PolygonSchema = z.object({
-  points: z.array(NormalizedPoint).min(3),
+  points: z.array(NormalizedPoint).min(3).max(64),
   label: z.string().min(1),
   confidence: z.number().min(0).max(1),
 });
@@ -14,8 +14,19 @@ export const DetectResponseSchema = z.object({
   polygons: z.array(PolygonSchema).min(0),
 });
 
+export const BboxResponseSchema = z.object({
+  bbox: z.tuple([
+    z.number().min(0).max(1),
+    z.number().min(0).max(1),
+    z.number().min(0).max(1),
+    z.number().min(0).max(1),
+  ]),
+  confidence: z.number().min(0).max(1),
+});
+
 export type DetectPolygon = z.infer<typeof PolygonSchema>;
 export type DetectResponse = z.infer<typeof DetectResponseSchema>;
+export type BboxResponse = z.infer<typeof BboxResponseSchema>;
 
 export type LatLngBounds = {
   sw: { lat: number; lng: number };

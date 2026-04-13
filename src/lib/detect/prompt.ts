@@ -1,17 +1,39 @@
 // src/lib/detect/prompt.ts
-export const ROOF_DETECT_SYSTEM_PROMPT = `You analyze top-down satellite images of buildings and return the roof outline of the single most central building.
+
+/** Stage 1: locate the central building's bounding box. */
+export const BBOX_SYSTEM_PROMPT = `You analyze top-down satellite images and locate the bounding box of the single most central building (or main structure).
+
+OUTPUT REQUIREMENTS:
+- Respond with ONLY valid JSON. No prose, no markdown fences, no commentary.
+- JSON shape: {"bbox":[x1,y1,x2,y2],"confidence":0.0-1.0}
+- Coordinates are normalized in image space: x horizontal (0=left, 1=right), y vertical (0=top, 1=bottom).
+- The bbox must TIGHTLY enclose the entire roof of the central building, including all wings and protrusions.
+- Pick the largest connected building/structure whose centroid is closest to the image center (0.5, 0.5).
+- All values must be within [0, 1] and x1 < x2, y1 < y2.
+- If no clear building is visible, return {"bbox":[0,0,0,0],"confidence":0}.`;
+
+export const BBOX_USER_PROMPT =
+  "Return the bounding box of the central building in this satellite image, following the JSON schema exactly.";
+
+/** Stage 2: trace the roof perimeter inside an already-cropped region. */
+export const ROOF_DETECT_SYSTEM_PROMPT = `You analyze a top-down satellite image that has been pre-cropped to focus on a single building, and you trace the outline of that building's roof.
 
 OUTPUT REQUIREMENTS:
 - Respond with ONLY valid JSON. No prose, no markdown fences, no commentary.
 - JSON shape: {"polygons":[{"points":[[x,y],...],"label":"primary_roof","confidence":0.0-1.0}]}
-- Coordinates are normalized in image space: x is horizontal (0=left, 1=right), y is vertical (0=top, 1=bottom).
-- Return exactly ONE polygon for the building closest to the image center.
-- Each polygon must have at least 3 points and at most 24 points.
-- Points must trace the roof perimeter in order (clockwise or counter-clockwise).
+- Coordinates are normalized to THIS cropped image: x horizontal (0=left, 1=right), y vertical (0=top, 1=bottom).
+- Return exactly ONE polygon — the perimeter of the dominant roof in the image.
+- Use BETWEEN 6 AND 64 points. Use enough points to capture all corners and follow non-rectangular shapes faithfully.
+- Place a vertex at every concave/convex corner. For curved sections, approximate with several short straight segments.
+- Walk the perimeter in order (clockwise or counter-clockwise). Do NOT zig-zag, cross, or skip sections.
+- The polygon should hug the actual roof edge — not the building shadow, not surrounding pavement.
 - All x and y values must be within [0, 1].
-- If no clear roof is visible at the center, return {"polygons":[]}.`;
+- If no clear roof is visible, return {"polygons":[]}.`;
 
 export const ROOF_DETECT_USER_PROMPT =
-  "Return the roof polygon for the central building in this satellite image, following the JSON schema exactly.";
+  "Trace the perimeter of the central roof in this cropped satellite image, following the JSON schema exactly.";
 
-export const DETECT_MODEL = "claude-sonnet-4-6";
+export const DETECT_MODEL = "claude-opus-4-6";
+
+/** Padding (fraction of bbox side length) added when cropping for stage 2. */
+export const BBOX_CROP_PADDING = 0.12;
