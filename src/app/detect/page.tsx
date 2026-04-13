@@ -1,76 +1,136 @@
+"use client";
+
+import { useRef } from "react";
 import { SideNav } from "@/components/SideNav";
 import { SiteMap } from "@/components/SiteMap";
 import { CoordinatesBentoCard } from "@/components/TargetCoordinates";
+import { AutoDetectButton } from "@/components/AutoDetectButton";
+import { RoofMaskOverlay } from "@/components/RoofMaskOverlay";
+import {
+  DetectionProvider,
+  useDetection,
+} from "@/components/DetectionContext";
 
 function DetectionStatusModule() {
+  const { status, polygons, errorMessage } = useDetection();
+
+  const statusLabel = (() => {
+    switch (status) {
+      case "capturing":
+        return "Capturing map tile...";
+      case "calling":
+        return "Analyzing with Claude Vision...";
+      case "success":
+        return `Detected (${polygons.length} polygon)`;
+      case "error":
+        return "Detection failed";
+      default:
+        return "Waiting for input...";
+    }
+  })();
+
+  const progressWidth = (() => {
+    switch (status) {
+      case "capturing":
+        return "33%";
+      case "calling":
+        return "66%";
+      case "success":
+        return "100%";
+      case "error":
+        return "100%";
+      default:
+        return "33%";
+    }
+  })();
+
+  const ring =
+    status === "error"
+      ? "bg-error"
+      : status === "success"
+        ? "bg-secondary"
+        : "bg-primary";
+
   return (
     <div className="bg-surface-container rounded-xl p-4 border border-outline-variant/15">
       <div className="flex items-center gap-3 mb-3">
         <span className="relative flex h-3 w-3">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-          <span className="relative inline-flex h-3 w-3 rounded-full bg-primary" />
+          <span
+            className={`animate-ping absolute inline-flex h-full w-full rounded-full ${ring} opacity-75`}
+          />
+          <span
+            className={`relative inline-flex h-3 w-3 rounded-full ${ring}`}
+          />
         </span>
         <span className="font-label text-[10px] font-bold uppercase tracking-widest text-primary">
-          System Ready
+          {status === "idle" ? "System Ready" : status.toUpperCase()}
         </span>
       </div>
       <p className="font-body text-xs text-on-surface leading-relaxed mb-4">
-        Waiting for input...
+        {statusLabel}
       </p>
+      {errorMessage && (
+        <p className="font-body text-[11px] text-error mb-3 break-words">
+          {errorMessage}
+        </p>
+      )}
       <div className="space-y-2">
         <div className="flex justify-between items-center text-[10px] font-mono text-tertiary">
-          <span>LATENCY</span>
-          <span>12ms</span>
+          <span>PROGRESS</span>
+          <span>
+            {status === "success" && polygons[0]
+              ? `conf ${Math.round(polygons[0].confidence * 100)}%`
+              : status}
+          </span>
         </div>
         <div className="w-full bg-outline-variant/20 h-1 rounded-full overflow-hidden">
-          <div className="bg-primary h-full w-1/3" />
+          <div
+            className={`${ring} h-full transition-all duration-300`}
+            style={{ width: progressWidth }}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-export default function DetectPage() {
+function DetectPageBody() {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const { status } = useDetection();
+
   return (
     <>
       <SideNav footer={<DetectionStatusModule />} />
       <main className="pl-80 pt-14 h-screen w-full relative overflow-hidden">
-        <SiteMap tint="primary" />
+        <SiteMap ref={mapContainerRef} tint="primary" />
+        <RoofMaskOverlay />
 
-        {/* Central reticle + tooltip */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-20">
-          <div className="mb-4 glass-panel px-4 py-2.5 rounded-full border border-white/20 shadow-lg animate-bounce">
-            <p className="text-xs font-medium text-on-surface flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-sm">
-                info
-              </span>
-              인식할 건물 위로 지도를 이동하세요
-            </p>
-          </div>
-          <div className="relative">
-            <div className="absolute inset-0 scale-150 border-2 border-primary/40 rounded-full animate-ping" />
-            <div className="relative w-8 h-8 flex items-center justify-center">
-              <span className="material-symbols-outlined filled text-primary text-4xl">
-                location_on
-              </span>
-              <div className="absolute -bottom-1 w-2 h-0.5 bg-black/20 blur-sm rounded-full" />
+        {/* Central reticle + tooltip — 감지 결과가 있을 때는 숨김 */}
+        {status !== "success" && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-20 pointer-events-none">
+            <div className="mb-4 glass-panel px-4 py-2.5 rounded-full border border-white/20 shadow-lg animate-bounce">
+              <p className="text-xs font-medium text-on-surface flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary text-sm">
+                  info
+                </span>
+                인식할 건물 위로 지도를 이동하세요
+              </p>
+            </div>
+            <div className="relative">
+              <div className="absolute inset-0 scale-150 border-2 border-primary/40 rounded-full animate-ping" />
+              <div className="relative w-8 h-8 flex items-center justify-center">
+                <span className="material-symbols-outlined filled text-primary text-4xl">
+                  location_on
+                </span>
+                <div className="absolute -bottom-1 w-2 h-0.5 bg-black/20 blur-sm rounded-full" />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Auto Detect CTA */}
         <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30 pl-40">
-          <button
-            type="button"
-            className="flex items-center gap-3 bg-primary text-on-primary px-8 py-4 rounded-full shadow-2xl hover:bg-primary-container transition-all transform hover:scale-105 group"
-          >
-            <span className="material-symbols-outlined text-2xl group-hover:rotate-90 transition-transform">
-              document_scanner
-            </span>
-            <span className="font-headline font-extrabold text-lg tracking-tight">
-              자동 지붕 인식 (Auto Detect)
-            </span>
-          </button>
+          <AutoDetectButton mapContainerRef={mapContainerRef} />
         </div>
 
         {/* Right bento panels */}
@@ -147,5 +207,13 @@ export default function DetectPage() {
         </div>
       </main>
     </>
+  );
+}
+
+export default function DetectPage() {
+  return (
+    <DetectionProvider>
+      <DetectPageBody />
+    </DetectionProvider>
   );
 }
