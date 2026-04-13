@@ -1,7 +1,7 @@
 "use client";
 
 import { Map, useMap } from "@vis.gl/react-google-maps";
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useRef } from "react";
 import { useMapCenter } from "./MapCenterContext";
 
 const MAP_ID = "solar-precision-map";
@@ -31,7 +31,10 @@ type SiteMapProps = {
   tint?: "none" | "primary" | "fade";
 };
 
-export function SiteMap({ zoom = 19, tint = "none" }: SiteMapProps) {
+export const SiteMap = forwardRef<HTMLDivElement, SiteMapProps>(function SiteMap(
+  { zoom = 19, tint = "none" },
+  ref,
+) {
   const { center } = useMapCenter();
 
   if (!GOOGLE_MAPS_API_KEY) {
@@ -50,7 +53,7 @@ export function SiteMap({ zoom = 19, tint = "none" }: SiteMapProps) {
   }
 
   return (
-    <div className="absolute inset-0 z-0">
+    <div ref={ref} className="absolute inset-0 z-0">
       <Map
         id={MAP_ID}
         defaultCenter={center}
@@ -71,4 +74,4 @@ export function SiteMap({ zoom = 19, tint = "none" }: SiteMapProps) {
       )}
     </div>
   );
-}
+});
