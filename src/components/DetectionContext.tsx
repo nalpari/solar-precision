@@ -38,6 +38,11 @@ type DetectionContextValue = DetectionState & {
   setResult: (polygons: DetectPolygon[], captured: CapturedRect) => void;
   setError: (message: string) => void;
   reset: () => void;
+  updatePolygonPoint: (
+    polygonIdx: number,
+    pointIdx: number,
+    point: [number, number],
+  ) => void;
 };
 
 const DetectionContext = createContext<DetectionContextValue | null>(null);
@@ -74,9 +79,37 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const updatePolygonPoint = useCallback(
+    (polygonIdx: number, pointIdx: number, point: [number, number]) => {
+      const clamped: [number, number] = [
+        Math.max(0, Math.min(1, point[0])),
+        Math.max(0, Math.min(1, point[1])),
+      ];
+      setState((s) => {
+        const target = s.polygons[polygonIdx];
+        if (!target) return s;
+        const nextPoints = target.points.map((p, i) =>
+          i === pointIdx ? clamped : p,
+        );
+        const nextPolygons = s.polygons.map((p, i) =>
+          i === polygonIdx ? { ...p, points: nextPoints } : p,
+        );
+        return { ...s, polygons: nextPolygons };
+      });
+    },
+    [],
+  );
+
   const value = useMemo<DetectionContextValue>(
-    () => ({ ...state, setStatus, setResult, setError, reset }),
-    [state, setStatus, setResult, setError, reset],
+    () => ({
+      ...state,
+      setStatus,
+      setResult,
+      setError,
+      reset,
+      updatePolygonPoint,
+    }),
+    [state, setStatus, setResult, setError, reset, updatePolygonPoint],
   );
 
   return (
