@@ -1,7 +1,7 @@
 // src/components/AutoDetectButton.tsx
 "use client";
 
-import html2canvas from "html2canvas";
+import { toPng } from "html-to-image";
 import { useCallback, type RefObject } from "react";
 import { useDetection, type CapturedRect } from "./DetectionContext";
 import { useMapCenter } from "./MapCenterContext";
@@ -29,25 +29,34 @@ function computeCenteredRect(container: HTMLElement): CapturedRect {
   };
 }
 
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(e instanceof Error ? e : new Error("image load failed"));
+    img.src = src;
+  });
+}
+
 async function captureCenterSquare(
   container: HTMLElement,
   rect: CapturedRect,
 ): Promise<string> {
-  const full = await html2canvas(container, {
-    useCORS: true,
-    allowTaint: true,
-    scale: 1,
-    backgroundColor: null,
+  const fullDataUrl = await toPng(container, {
+    cacheBust: true,
+    pixelRatio: 1,
+    skipFonts: true,
   });
-  const scaleX = full.width / container.clientWidth;
-  const scaleY = full.height / container.clientHeight;
+  const img = await loadImage(fullDataUrl);
+  const scaleX = img.width / container.clientWidth;
+  const scaleY = img.height / container.clientHeight;
   const out = document.createElement("canvas");
   out.width = rect.width;
   out.height = rect.height;
   const ctx = out.getContext("2d");
   if (!ctx) throw new Error("canvas 2d context 생성 실패");
   ctx.drawImage(
-    full,
+    img,
     Math.round(rect.left * scaleX),
     Math.round(rect.top * scaleY),
     Math.round(rect.width * scaleX),
