@@ -127,8 +127,23 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
             ? "재시도"
             : "자동 지붕 인식 (Auto Detect)";
 
+  const showReset = status === "success" || status === "error";
+
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex items-center gap-3">
+      {showReset && (
+        <button
+          type="button"
+          onClick={reset}
+          className="flex items-center gap-2 bg-surface-container text-on-surface px-5 py-4 rounded-full shadow-xl border border-outline-variant/30 hover:bg-surface-container-high transition-all"
+          aria-label="감지 결과 초기화"
+        >
+          <span className="material-symbols-outlined text-xl">close</span>
+          <span className="font-headline font-bold text-sm tracking-tight">
+            초기화
+          </span>
+        </button>
+      )}
       <button
         type="button"
         onClick={() => {
