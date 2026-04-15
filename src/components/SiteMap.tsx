@@ -4,7 +4,7 @@ import { Map, useMap } from "@vis.gl/react-google-maps";
 import { forwardRef, useEffect, useRef } from "react";
 import { useMapCenter } from "./MapCenterContext";
 
-const MAP_ID = "solar-precision-map";
+export const MAP_ID = "solar-precision-map";
 const GOOGLE_MAPS_API_KEY =
   process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
@@ -29,10 +29,12 @@ function CenterUpdater() {
 type SiteMapProps = {
   zoom?: number;
   tint?: "none" | "primary" | "fade";
+  /** Toggle map gestures off while a drawing overlay is active. */
+  gestureHandling?: "greedy" | "none" | "auto";
 };
 
 export const SiteMap = forwardRef<HTMLDivElement, SiteMapProps>(function SiteMap(
-  { zoom = 19, tint = "none" },
+  { zoom = 19, tint = "none", gestureHandling = "greedy" },
   ref,
 ) {
   const { center } = useMapCenter();
@@ -61,7 +63,7 @@ export const SiteMap = forwardRef<HTMLDivElement, SiteMapProps>(function SiteMap
         mapTypeId="satellite"
         tilt={0}
         disableDefaultUI
-        gestureHandling="greedy"
+        gestureHandling={gestureHandling}
         style={{ width: "100%", height: "100%" }}
       >
         <CenterUpdater />

@@ -5,7 +5,6 @@ import { SideNav } from "@/components/SideNav";
 import { SiteMap } from "@/components/SiteMap";
 import { CoordinatesBentoCard } from "@/components/TargetCoordinates";
 import { AutoDetectButton } from "@/components/AutoDetectButton";
-import { RoofMaskOverlay } from "@/components/RoofMaskOverlay";
 import {
   DetectionProvider,
   useDetection,
@@ -16,12 +15,18 @@ function DetectionStatusModule() {
 
   const statusLabel = (() => {
     switch (status) {
+      case "selecting":
+        return "Drag a rectangle around the building...";
+      case "zooming":
+        return "Zooming into selection...";
       case "capturing":
         return "Capturing map tile...";
+      case "previewing":
+        return "Awaiting confirmation...";
       case "calling":
-        return "Analyzing with Claude Vision...";
+        return "Analyzing with Gemini Vision...";
       case "success":
-        return `Detected (${polygons.length} polygon)`;
+        return `Detected (${polygons.length} faces)`;
       case "error":
         return "Detection failed";
       default:
@@ -31,16 +36,22 @@ function DetectionStatusModule() {
 
   const progressWidth = (() => {
     switch (status) {
+      case "selecting":
+        return "20%";
+      case "zooming":
+        return "40%";
       case "capturing":
-        return "33%";
+        return "60%";
+      case "previewing":
+        return "70%";
       case "calling":
-        return "66%";
+        return "85%";
       case "success":
         return "100%";
       case "error":
         return "100%";
       default:
-        return "33%";
+        return "10%";
     }
   })();
 
@@ -78,8 +89,8 @@ function DetectionStatusModule() {
         <div className="flex justify-between items-center text-[10px] font-mono text-tertiary">
           <span>PROGRESS</span>
           <span>
-            {status === "success" && polygons[0]
-              ? `conf ${Math.round(polygons[0].confidence * 100)}%`
+            {status === "success" && polygons.length > 0
+              ? `conf ${Math.round(Math.min(...polygons.map((p) => p.confidence)) * 100)}%`
               : status}
           </span>
         </div>
@@ -102,11 +113,14 @@ function DetectPageBody() {
     <>
       <SideNav footer={<DetectionStatusModule />} />
       <main className="pl-80 pt-14 h-screen w-full relative overflow-hidden">
-        <SiteMap ref={mapContainerRef} tint="primary" />
-        <RoofMaskOverlay />
+        <SiteMap
+          ref={mapContainerRef}
+          tint="primary"
+          gestureHandling={status === "selecting" ? "none" : "greedy"}
+        />
 
-        {/* Central reticle + tooltip — 감지 결과가 있을 때는 숨김 */}
-        {status !== "success" && (
+        {/* Central reticle + tooltip — only at idle */}
+        {status === "idle" && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-20 pointer-events-none">
             <div className="mb-4 glass-panel px-4 py-2.5 rounded-full border border-white/20 shadow-lg animate-bounce">
               <p className="text-xs font-medium text-on-surface flex items-center gap-2">
