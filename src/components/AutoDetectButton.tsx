@@ -40,7 +40,9 @@ function computeZoomDelta(container: HTMLElement, rect: CapturedRect): number {
   const visibleH = Math.max(1, container.clientHeight - CHROME.top - CHROME.bottom);
   const maxScale = Math.min(visibleW / rect.width, visibleH / rect.height);
   const maxDelta = Math.floor(Math.log2(Math.max(1, maxScale)));
-  const desiredDelta = Math.ceil(Math.log2(3));
+  /** Fixed minimum scale for map zoom — independent of user's ZoomFactor choice. */
+  const MAP_ZOOM_MIN_SCALE = 3;
+  const desiredDelta = Math.ceil(Math.log2(MAP_ZOOM_MIN_SCALE));
   return Math.max(1, Math.min(desiredDelta, maxDelta));
 }
 
@@ -65,17 +67,18 @@ async function captureRect(
   // `?pb=...` query) collapse to one key. The first capture works because
   // parallel fetches race the cache, but on subsequent captures every tile
   // resolves to the *last* cached tile — producing the repeated-tile pattern.
+  const safeRatio = Math.max(1, Math.min(pixelRatio, 3));
   const fullDataUrl = await toPng(container, {
     cacheBust: true,
     includeQueryParams: true,
-    pixelRatio,
+    pixelRatio: safeRatio,
     skipFonts: true,
   });
   const img = await loadImage(fullDataUrl);
   const scaleX = img.width / container.clientWidth;
   const scaleY = img.height / container.clientHeight;
-  const outW = Math.round(rect.width * pixelRatio);
-  const outH = Math.round(rect.height * pixelRatio);
+  const outW = Math.round(rect.width * safeRatio);
+  const outH = Math.round(rect.height * safeRatio);
   const out = document.createElement("canvas");
   out.width = outW;
   out.height = outH;

@@ -358,9 +358,8 @@ export async function POST(req: Request) {
   } catch (err) {
     if (err instanceof ApiError) return respondWithUpstreamError(err, "호출");
     console.error("[detect-roof] 분석 실패:", err);
-    const msg = err instanceof Error ? err.message : "알 수 없는 오류";
     return NextResponse.json(
-      { error: `분석에 실패했습니다: ${msg}` },
+      { error: "분석에 일시적으로 실패했습니다. 잠시 후 다시 시도하세요." },
       { status: 502 },
     );
   }
