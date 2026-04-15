@@ -1,6 +1,6 @@
 // src/app/api/detect-roof/route.ts
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { ApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import sharp from "sharp";
 import {
   BboxResponseSchema,
@@ -45,42 +45,46 @@ function extractJsonPayload(text: string): string | null {
   return null;
 }
 
-async function callClaudeJson<T>(
-  client: Anthropic,
+async function callGeminiJson<T>(
+  client: GoogleGenAI,
   image: ParsedDataUrl,
   systemPrompt: string,
   userPrompt: string,
+  responseSchema: Schema,
   validate: (parsed: unknown) =>
     | { success: true; data: T }
     | { success: false; error: string },
+  maxOutputTokens: number = 2048,
 ): Promise<T> {
-  const message = await client.messages.create({
+  const response = await client.models.generateContent({
     model: DETECT_MODEL,
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: [
+    contents: [
       {
         role: "user",
-        content: [
+        parts: [
           {
-            type: "image",
-            source: {
-              type: "base64",
-              media_type: image.mediaType,
+            inlineData: {
+              mimeType: image.mediaType,
               data: image.base64,
             },
           },
-          { type: "text", text: userPrompt },
+          { text: userPrompt },
         ],
       },
     ],
+    config: {
+      systemInstruction: systemPrompt,
+      responseMimeType: "application/json",
+      responseSchema,
+      maxOutputTokens,
+    },
   });
 
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Claude가 텍스트 응답을 반환하지 않았습니다.");
+  const text = response.text;
+  if (!text) {
+    throw new Error("Gemini가 텍스트 응답을 반환하지 않았습니다.");
   }
-  const payload = extractJsonPayload(textBlock.text);
+  const payload = extractJsonPayload(text);
   if (!payload) {
     throw new Error("응답에서 JSON 객체를 찾지 못했습니다.");
   }
@@ -92,15 +96,60 @@ async function callClaudeJson<T>(
   return result.data;
 }
 
+const BBOX_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  required: ["bbox", "confidence"],
+  properties: {
+    bbox: {
+      type: Type.ARRAY,
+      minItems: "4",
+      maxItems: "4",
+      items: { type: Type.NUMBER, minimum: 0, maximum: 1 },
+    },
+    confidence: { type: Type.NUMBER, minimum: 0, maximum: 1 },
+  },
+};
+
+const POLYGON_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  required: ["points", "label", "confidence", "azimuth", "tilt"],
+  properties: {
+    points: {
+      type: Type.ARRAY,
+      minItems: "3",
+      maxItems: "64",
+      items: {
+        type: Type.ARRAY,
+        minItems: "2",
+        maxItems: "2",
+        items: { type: Type.NUMBER, minimum: 0, maximum: 1 },
+      },
+    },
+    label: { type: Type.STRING },
+    confidence: { type: Type.NUMBER, minimum: 0, maximum: 1 },
+    azimuth: { type: Type.NUMBER, minimum: 0, maximum: 360 },
+    tilt: { type: Type.NUMBER, minimum: 0, maximum: 90 },
+  },
+};
+
+const DETECT_RESPONSE_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  required: ["polygons"],
+  properties: {
+    polygons: { type: Type.ARRAY, items: POLYGON_SCHEMA },
+  },
+};
+
 async function locateBbox(
-  client: Anthropic,
+  client: GoogleGenAI,
   image: ParsedDataUrl,
 ): Promise<BboxResponse> {
-  return callClaudeJson(
+  return callGeminiJson(
     client,
     image,
     BBOX_SYSTEM_PROMPT,
     BBOX_USER_PROMPT,
+    BBOX_RESPONSE_SCHEMA,
     (parsed) => {
       const v = BboxResponseSchema.safeParse(parsed);
       if (!v.success) {
@@ -121,14 +170,15 @@ async function locateBbox(
 }
 
 async function tracePolygon(
-  client: Anthropic,
+  client: GoogleGenAI,
   croppedImage: ParsedDataUrl,
 ): Promise<DetectResponse> {
-  return callClaudeJson(
+  return callGeminiJson(
     client,
     croppedImage,
     ROOF_DETECT_SYSTEM_PROMPT,
     ROOF_DETECT_USER_PROMPT,
+    DETECT_RESPONSE_SCHEMA,
     (parsed) => {
       const v = DetectResponseSchema.safeParse(parsed);
       if (!v.success) {
@@ -141,6 +191,8 @@ async function tracePolygon(
       }
       return { success: true, data: v.data };
     },
+    // Multi-face JSON is larger than a single-polygon response; give Gemini headroom.
+    8192,
   );
 }
 
@@ -207,29 +259,47 @@ function transformPolygonToOriginalSpace(
 }
 
 async function runTwoStageDetection(
-  client: Anthropic,
+  client: GoogleGenAI,
   image: ParsedDataUrl,
 ): Promise<DetectResponse> {
   const bboxResult = await locateBbox(client, image);
   if (bboxResult.confidence < 0.2) {
-    return { polygons: [] };
+    console.warn(
+      `[detect-roof] bbox 신뢰도 낮음 (${bboxResult.confidence.toFixed(3)} < 0.2) — 빈 결과 반환`,
+    );
+    return {
+      polygons: [],
+      reason: "low_confidence",
+      bboxConfidence: bboxResult.confidence,
+    };
   }
   const { paddedBbox, cropped } = await cropToBbox(image, bboxResult.bbox);
   const polygonResult = await tracePolygon(client, cropped);
-  if (polygonResult.polygons.length === 0) return { polygons: [] };
+  if (polygonResult.polygons.length === 0) {
+    console.warn(
+      `[detect-roof] bbox는 잡혔으나(conf=${bboxResult.confidence.toFixed(3)}) tracePolygon이 폴리곤 0개 반환`,
+    );
+    return {
+      polygons: [],
+      reason: "no_polygons",
+      bboxConfidence: bboxResult.confidence,
+    };
+  }
   return {
     polygons: polygonResult.polygons.map((p) =>
       transformPolygonToOriginalSpace(p, paddedBbox),
     ),
+    reason: "ok",
+    bboxConfidence: bboxResult.confidence,
   };
 }
 
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.error("[detect-roof] ANTHROPIC_API_KEY 미설정");
+    console.error("[detect-roof] GEMINI_API_KEY 미설정");
     return NextResponse.json(
-      { error: "Server is missing ANTHROPIC_API_KEY" },
+      { error: "Server is missing GEMINI_API_KEY" },
       { status: 500 },
     );
   }
@@ -255,20 +325,39 @@ export async function POST(req: Request) {
     );
   }
 
-  const client = new Anthropic({ apiKey });
+  const client = new GoogleGenAI({ apiKey });
 
   try {
     const result = await runTwoStageDetection(client, image);
     return NextResponse.json(result satisfies DetectResponse);
   } catch (err1) {
+    // Don't retry on permanent failures (auth, permission, bad request).
+    if (err1 instanceof ApiError && [400, 401, 403, 404].includes(err1.status)) {
+      return respondWithUpstreamError(err1, "1차");
+    }
     console.warn("[detect-roof] 1차 호출 실패, 재시도:", err1);
     try {
       const result = await runTwoStageDetection(client, image);
       return NextResponse.json(result satisfies DetectResponse);
     } catch (err2) {
+      if (err2 instanceof ApiError) return respondWithUpstreamError(err2, "재시도");
       console.error("[detect-roof] 재시도 실패:", err2);
       const message = err2 instanceof Error ? err2.message : "Unknown error";
       return NextResponse.json({ error: message }, { status: 502 });
     }
   }
+}
+
+function respondWithUpstreamError(err: ApiError, stage: string) {
+  console.error(`[detect-roof] Gemini ${err.status} (${stage}):`, err.message);
+  const detail =
+    err.status === 403
+      ? "Gemini API permission denied. (1) AI Studio에서 발급한 키인지 확인 (2) 키 사용 중인 GCP 프로젝트에 Generative Language API가 활성화됐는지 확인 (3) gemini-3-pro-preview는 paid tier 필요 — 무료 키면 gemini-2.5-flash로 변경하세요."
+      : err.status === 429
+        ? "Gemini API rate limit. 잠시 후 재시도하세요."
+        : err.message;
+  return NextResponse.json(
+    { error: detail, upstreamStatus: err.status },
+    { status: err.status },
+  );
 }

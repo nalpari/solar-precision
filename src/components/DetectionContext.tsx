@@ -13,7 +13,10 @@ import type { DetectPolygon } from "@/lib/detect/schema";
 
 export type DetectionStatus =
   | "idle"
+  | "selecting"
+  | "zooming"
   | "capturing"
+  | "previewing"
   | "calling"
   | "success"
   | "error";
@@ -26,15 +29,28 @@ export type CapturedRect = {
   height: number;
 };
 
+export type SelectionSize = { width: number; height: number };
+
 type DetectionState = {
   status: DetectionStatus;
   polygons: DetectPolygon[];
   captured: CapturedRect | null;
+  /** Captured PNG data URL shown in the preview modal before AI is invoked. */
+  previewImage: string | null;
+  /** Original drag rectangle size (viewport px) — used to render preview at a
+   *  fixed multiple of what the user drew. */
+  sourceSelectionSize: SelectionSize | null;
   errorMessage: string | null;
 };
 
 type DetectionContextValue = DetectionState & {
   setStatus: (s: DetectionStatus) => void;
+  startSelecting: () => void;
+  setPreview: (
+    imageDataUrl: string,
+    captured: CapturedRect,
+    sourceSize: SelectionSize,
+  ) => void;
   setResult: (polygons: DetectPolygon[], captured: CapturedRect) => void;
   setError: (message: string) => void;
   reset: () => void;
@@ -52,6 +68,8 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
     status: "idle",
     polygons: [],
     captured: null,
+    previewImage: null,
+    sourceSelectionSize: null,
     errorMessage: null,
   });
 
@@ -59,9 +77,44 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, status }));
   }, []);
 
+  const startSelecting = useCallback(() => {
+    setState({
+      status: "selecting",
+      polygons: [],
+      captured: null,
+      previewImage: null,
+      sourceSelectionSize: null,
+      errorMessage: null,
+    });
+  }, []);
+
+  const setPreview = useCallback(
+    (
+      imageDataUrl: string,
+      captured: CapturedRect,
+      sourceSize: SelectionSize,
+    ) => {
+      setState((s) => ({
+        ...s,
+        status: "previewing",
+        previewImage: imageDataUrl,
+        captured,
+        sourceSelectionSize: sourceSize,
+        errorMessage: null,
+      }));
+    },
+    [],
+  );
+
   const setResult = useCallback(
     (polygons: DetectPolygon[], captured: CapturedRect) => {
-      setState({ status: "success", polygons, captured, errorMessage: null });
+      setState((s) => ({
+        ...s,
+        status: "success",
+        polygons,
+        captured,
+        errorMessage: null,
+      }));
     },
     [],
   );
@@ -75,6 +128,8 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
       status: "idle",
       polygons: [],
       captured: null,
+      previewImage: null,
+      sourceSelectionSize: null,
       errorMessage: null,
     });
   }, []);
@@ -104,12 +159,23 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       setStatus,
+      startSelecting,
+      setPreview,
       setResult,
       setError,
       reset,
       updatePolygonPoint,
     }),
-    [state, setStatus, setResult, setError, reset, updatePolygonPoint],
+    [
+      state,
+      setStatus,
+      startSelecting,
+      setPreview,
+      setResult,
+      setError,
+      reset,
+      updatePolygonPoint,
+    ],
   );
 
   return (
