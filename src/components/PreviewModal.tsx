@@ -3,19 +3,18 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import type { DetectionStatus, SelectionSize } from "./DetectionContext";
+import type { DetectionStatus, SelectionSize, ZoomFactor } from "./DetectionContext";
 import type { DetectPolygon } from "@/lib/detect/schema";
 import { PreviewPolygonEditor } from "./PreviewPolygonEditor";
-
-const PREVIEW_SCALE = 3;
 
 type Props = {
   status: DetectionStatus;
   imageDataUrl: string;
-  /** Original drag rectangle size (viewport px). Preview renders at 3×. */
+  /** Original drag rectangle size (viewport px). Preview renders at zoomFactor×. */
   sourceSize: SelectionSize;
   /** Image-space pixel size of the captured PNG (used as SVG viewBox). */
   capturedSize: { width: number; height: number };
+  zoomFactor: ZoomFactor;
   polygons: DetectPolygon[];
   errorMessage: string | null;
   onConfirm: () => void;
@@ -33,6 +32,7 @@ export function PreviewModal({
   imageDataUrl,
   sourceSize,
   capturedSize,
+  zoomFactor,
   polygons,
   errorMessage,
   onConfirm,
@@ -40,8 +40,8 @@ export function PreviewModal({
   onFinalize,
   onPointChange,
 }: Props) {
-  const displayW = sourceSize.width * PREVIEW_SCALE;
-  const displayH = sourceSize.height * PREVIEW_SCALE;
+  const displayW = sourceSize.width * zoomFactor;
+  const displayH = sourceSize.height * zoomFactor;
 
   const isCalling = status === "calling";
   const isSuccess = status === "success";
@@ -141,7 +141,7 @@ export function PreviewModal({
         </div>
         <p className="text-[10px] text-outline mb-3 font-mono">
           선택 {sourceSize.width}×{sourceSize.height}px · 표시 {displayW}×
-          {displayH}px (×{PREVIEW_SCALE})
+          {displayH}px (×{zoomFactor})
           {isSuccess && ` · 면 ${polygons.length}개 감지`}
         </p>
         <div className="flex items-center justify-end gap-2">

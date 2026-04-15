@@ -355,23 +355,13 @@ export async function POST(req: Request) {
   try {
     const result = await runTwoStageDetection(client, image);
     return NextResponse.json(result satisfies DetectResponse);
-  } catch (err1) {
-    // Don't retry on permanent failures (auth, permission, bad request).
-    if (err1 instanceof ApiError && [400, 401, 403, 404].includes(err1.status)) {
-      return respondWithUpstreamError(err1, "1차");
-    }
-    console.warn("[detect-roof] 1차 호출 실패, 재시도:", err1);
-    try {
-      const result = await runTwoStageDetection(client, image);
-      return NextResponse.json(result satisfies DetectResponse);
-    } catch (err2) {
-      if (err2 instanceof ApiError) return respondWithUpstreamError(err2, "재시도");
-      console.error("[detect-roof] 재시도 실패:", err2);
-      return NextResponse.json(
-        { error: "분석에 일시적으로 실패했습니다. 잠시 후 다시 시도하세요." },
-        { status: 502 },
-      );
-    }
+  } catch (err) {
+    if (err instanceof ApiError) return respondWithUpstreamError(err, "호출");
+    console.error("[detect-roof] 분석 실패:", err);
+    return NextResponse.json(
+      { error: "분석에 일시적으로 실패했습니다. 잠시 후 다시 시도하세요." },
+      { status: 502 },
+    );
   }
 }
 

@@ -23,14 +23,9 @@ type Props = {
   mapContainerRef: RefObject<HTMLDivElement | null>;
 };
 
-const CAPTURE_PIXEL_RATIO = 2;
-
 /** Chrome around the map: SideNav (left 320px), header (top 56px),
  *  bottom CTA (~120px). Keep in sync with detect/page.tsx layout. */
 const CHROME = { left: 320, top: 56, right: 24, bottom: 140 };
-
-/** Minimum on-screen enlargement of the user's selection. e.g. 3 = at least 3×. */
-const MIN_ZOOM_FACTOR = 3;
 
 /** Fallback cap if Google's getMaxZoom() is unavailable. Satellite imagery
  *  typically tops out around 20–22 depending on location; past that, tiles
@@ -38,16 +33,16 @@ const MIN_ZOOM_FACTOR = 3;
 const SATELLITE_ZOOM_CAP = 21;
 
 /** Compute the integer zoom delta needed to make rect appear at least
- *  MIN_ZOOM_FACTOR × its current size, capped so it still fits the visible area.
+ *  3× its current size, capped so it still fits the visible area.
  *  Returns delta in zoom levels (each +1 doubles linear resolution). */
 function computeZoomDelta(container: HTMLElement, rect: CapturedRect): number {
   const visibleW = Math.max(1, container.clientWidth - CHROME.left - CHROME.right);
   const visibleH = Math.max(1, container.clientHeight - CHROME.top - CHROME.bottom);
-  // Highest zoom delta that still lets the rect fit inside visible area.
   const maxScale = Math.min(visibleW / rect.width, visibleH / rect.height);
   const maxDelta = Math.floor(Math.log2(Math.max(1, maxScale)));
-  // Desired delta to reach MIN_ZOOM_FACTOR (rounded up, so we *exceed* the minimum).
-  const desiredDelta = Math.ceil(Math.log2(MIN_ZOOM_FACTOR));
+  /** Fixed minimum scale for map zoom — independent of user's ZoomFactor choice. */
+  const MAP_ZOOM_MIN_SCALE = 3;
+  const desiredDelta = Math.ceil(Math.log2(MAP_ZOOM_MIN_SCALE));
   return Math.max(1, Math.min(desiredDelta, maxDelta));
 }
 
@@ -64,6 +59,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 async function captureRect(
   container: HTMLElement,
   rect: CapturedRect,
+  pixelRatio: number,
 ): Promise<string> {
   // `includeQueryParams: true` is REQUIRED. html-to-image strips query strings
   // from its cache keys by default, so all Google Maps tile URLs (which share
@@ -71,18 +67,21 @@ async function captureRect(
   // `?pb=...` query) collapse to one key. The first capture works because
   // parallel fetches race the cache, but on subsequent captures every tile
   // resolves to the *last* cached tile — producing the repeated-tile pattern.
+  const safeRatio = Math.max(1, Math.min(pixelRatio, 3));
   const fullDataUrl = await toPng(container, {
     cacheBust: true,
     includeQueryParams: true,
-    pixelRatio: CAPTURE_PIXEL_RATIO,
+    pixelRatio: safeRatio,
     skipFonts: true,
   });
   const img = await loadImage(fullDataUrl);
   const scaleX = img.width / container.clientWidth;
   const scaleY = img.height / container.clientHeight;
+  const outW = Math.round(rect.width * safeRatio);
+  const outH = Math.round(rect.height * safeRatio);
   const out = document.createElement("canvas");
-  out.width = rect.width;
-  out.height = rect.height;
+  out.width = outW;
+  out.height = outH;
   const ctx = out.getContext("2d");
   if (!ctx) throw new Error("canvas 2d context 생성 실패");
   ctx.drawImage(
@@ -93,8 +92,8 @@ async function captureRect(
     Math.round(rect.height * scaleY),
     0,
     0,
-    rect.width,
-    rect.height,
+    outW,
+    outH,
   );
   return out.toDataURL("image/png");
 }
@@ -107,6 +106,7 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
     sourceSelectionSize,
     captured,
     errorMessage,
+    zoomFactor,
     setStatus,
     startSelecting,
     setPreview,
@@ -166,8 +166,9 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
         const bounds = await pixelRectToLatLngBounds(map, rect);
         lastBoundsRef.current = bounds;
 
-        // Center on the selection, then bump zoom enough to enlarge ≥ MIN_ZOOM_FACTOR×,
-        // clamped to the max available zoom so we never exceed the tile supply.
+        // Center on the selection and zoom in as much as possible (independent
+        // of zoomFactor). The 2x/3x differentiation is handled by the capture
+        // pixelRatio and preview display size, not map zoom.
         const currentZoom = map.getZoom() ?? 19;
         const delta = computeZoomDelta(container, rect);
         const targetZoom = Math.min(currentZoom + delta, SATELLITE_ZOOM_CAP);
@@ -177,7 +178,7 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
 
         setStatus("capturing");
         const fittedRect = await latLngBoundsToPixelRect(map, bounds);
-        const imageDataUrl = await captureRect(container, fittedRect);
+        const imageDataUrl = await captureRect(container, fittedRect, zoomFactor);
         setPreview(imageDataUrl, fittedRect, {
           width: rect.width,
           height: rect.height,
@@ -192,7 +193,7 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
         setError(msg);
       }
     },
-    [map, mapContainerRef, setError, setPreview, setStatus, status],
+    [map, mapContainerRef, setError, setPreview, setStatus, status, zoomFactor],
   );
 
   const handleConfirm = useCallback(async () => {
@@ -359,9 +360,10 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
             imageDataUrl={previewImage}
             sourceSize={sourceSelectionSize}
             capturedSize={{
-              width: captured.width,
-              height: captured.height,
+              width: Math.round(captured.width * zoomFactor),
+              height: Math.round(captured.height * zoomFactor),
             }}
+            zoomFactor={zoomFactor}
             polygons={polygons}
             errorMessage={errorMessage}
             onConfirm={handleConfirm}

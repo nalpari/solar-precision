@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMapsLibrary } from "@vis.gl/react-google-maps";
 import {
   useCallback,
@@ -116,9 +117,9 @@ export function TopNav() {
   return (
     <nav className="bg-background border-b border-outline-variant/15 flex justify-between px-6 py-2 w-full items-center fixed top-0 z-50 font-headline text-sm tracking-tight">
       <div className="flex items-center gap-8">
-        <span className="text-lg font-bold text-primary tracking-tighter">
+        <Link href="/" className="text-lg font-bold text-primary tracking-tighter hover:opacity-80 transition-opacity">
           SolarPrecision JP
-        </span>
+        </Link>
         <div ref={containerRef} className="relative w-96">
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
             <span className="material-symbols-outlined text-outline text-sm">
