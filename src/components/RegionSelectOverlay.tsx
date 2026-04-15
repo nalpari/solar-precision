@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { useDetection, type CapturedRect } from "./DetectionContext";
+import { useDetection, type CapturedRect, type ZoomFactor } from "./DetectionContext";
 
 const MIN_SELECTION_PX = 24;
 
@@ -43,7 +43,7 @@ function rectFromDrag(d: DragState): CapturedRect {
 }
 
 export function RegionSelectOverlay({ containerRef, onComplete }: Props) {
-  const { setError, reset } = useDetection();
+  const { zoomFactor, setZoomFactor, setError, reset } = useDetection();
   const layerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
 
@@ -150,13 +150,35 @@ export function RegionSelectOverlay({ containerRef, onComplete }: Props) {
       onPointerCancel={handlePointerCancel}
     >
       {!drag && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass-panel px-4 py-2.5 rounded-full border border-white/30 shadow-lg pointer-events-none">
-          <p className="text-xs font-medium text-on-surface flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-sm">
-              crop_free
-            </span>
-            건물 위로 사각형을 드래그하세요
-          </p>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2 pointer-events-none">
+          <div className="glass-panel px-4 py-2.5 rounded-full border border-white/30 shadow-lg">
+            <p className="text-xs font-medium text-on-surface flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary text-sm">
+                crop_free
+              </span>
+              건물 위로 사각형을 드래그하세요
+            </p>
+          </div>
+          <div
+            className="glass-panel px-3 py-1.5 rounded-full border border-white/30 shadow-lg pointer-events-auto flex items-center gap-2"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <span className="text-[10px] font-medium text-on-surface-variant">줌</span>
+            {([2, 3] as ZoomFactor[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setZoomFactor(f)}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-bold transition-colors ${
+                  zoomFactor === f
+                    ? "bg-primary text-on-primary"
+                    : "text-on-surface-variant hover:bg-white/20"
+                }`}
+              >
+                {f}x
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {rect && (
@@ -173,8 +195,8 @@ export function RegionSelectOverlay({ containerRef, onComplete }: Props) {
           <rect
             x={1}
             y={1}
-            width={rect.width - 2}
-            height={rect.height - 2}
+            width={Math.max(0, rect.width - 2)}
+            height={Math.max(0, rect.height - 2)}
             fill="rgba(99, 102, 241, 0.20)"
             stroke="rgb(99, 102, 241)"
             strokeWidth={2}

@@ -31,6 +31,8 @@ export type CapturedRect = {
 
 export type SelectionSize = { width: number; height: number };
 
+export type ZoomFactor = 2 | 3;
+
 type DetectionState = {
   status: DetectionStatus;
   polygons: DetectPolygon[];
@@ -41,6 +43,7 @@ type DetectionState = {
    *  fixed multiple of what the user drew. */
   sourceSelectionSize: SelectionSize | null;
   errorMessage: string | null;
+  zoomFactor: ZoomFactor;
 };
 
 type DetectionContextValue = DetectionState & {
@@ -53,6 +56,7 @@ type DetectionContextValue = DetectionState & {
   ) => void;
   setResult: (polygons: DetectPolygon[], captured: CapturedRect) => void;
   setError: (message: string) => void;
+  setZoomFactor: (f: ZoomFactor) => void;
   reset: () => void;
   updatePolygonPoint: (
     polygonIdx: number,
@@ -71,6 +75,7 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
     previewImage: null,
     sourceSelectionSize: null,
     errorMessage: null,
+    zoomFactor: 3,
   });
 
   const setStatus = useCallback((status: DetectionStatus) => {
@@ -78,14 +83,15 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startSelecting = useCallback(() => {
-    setState({
+    setState((s) => ({
       status: "selecting",
       polygons: [],
       captured: null,
       previewImage: null,
       sourceSelectionSize: null,
       errorMessage: null,
-    });
+      zoomFactor: s.zoomFactor,
+    }));
   }, []);
 
   const setPreview = useCallback(
@@ -123,6 +129,10 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, status: "error", errorMessage: message }));
   }, []);
 
+  const setZoomFactor = useCallback((f: ZoomFactor) => {
+    setState((s) => ({ ...s, zoomFactor: f }));
+  }, []);
+
   const reset = useCallback(() => {
     setState({
       status: "idle",
@@ -131,6 +141,7 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
       previewImage: null,
       sourceSelectionSize: null,
       errorMessage: null,
+      zoomFactor: 3,
     });
   }, []);
 
@@ -163,6 +174,7 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
       setPreview,
       setResult,
       setError,
+      setZoomFactor,
       reset,
       updatePolygonPoint,
     }),
@@ -173,6 +185,7 @@ export function DetectionProvider({ children }: { children: ReactNode }) {
       setPreview,
       setResult,
       setError,
+      setZoomFactor,
       reset,
       updatePolygonPoint,
     ],
