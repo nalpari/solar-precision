@@ -2,7 +2,7 @@
 "use client";
 
 import { toPng } from "html-to-image";
-import { useCallback, useRef, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { useMap } from "@vis.gl/react-google-maps";
 import { useDetection, type CapturedRect } from "./DetectionContext";
 import { MAP_ID } from "./SiteMap";
@@ -120,6 +120,16 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
   // Bounds captured during the zoom step; reused if the user re-selects.
   const lastBoundsRef = useRef<google.maps.LatLngBounds | null>(null);
 
+  // Tracks the in-flight /api/detect-roof request so re-select/reset/finalize
+  // can abort it — otherwise a late response would overwrite a newer state
+  // (e.g. flip `selecting` back to `success`).
+  const detectAbortRef = useRef<AbortController | null>(null);
+  const abortDetectIfRunning = useCallback(() => {
+    detectAbortRef.current?.abort();
+    detectAbortRef.current = null;
+  }, []);
+  useEffect(() => abortDetectIfRunning, [abortDetectIfRunning]);
+
   // Map camera before the first zoom-in of a session. We restore to this on
   // re-select so repeated selections don't compound zoom past the max
   // satellite zoom (which would render as broken grey tiles).
@@ -187,47 +197,58 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
 
   const handleConfirm = useCallback(async () => {
     if (!previewImage || !captured) return;
+
+    // Any previous in-flight request is now obsolete.
+    detectAbortRef.current?.abort();
+    const controller = new AbortController();
+    detectAbortRef.current = controller;
+    const { signal } = controller;
+
     try {
       setStatus("calling");
       const bounds = lastBoundsRef.current;
-      const sw = bounds?.getSouthWest();
-      const ne = bounds?.getNorthEast();
+      if (!bounds) {
+        setError("좌표 정보가 없습니다. 영역을 다시 선택하세요.");
+        return;
+      }
+      const sw = bounds.getSouthWest();
+      const ne = bounds.getNorthEast();
       const body: DetectRequestBody = {
         imageDataUrl: previewImage,
         bounds: {
-          sw: { lat: sw?.lat() ?? 0, lng: sw?.lng() ?? 0 },
-          ne: { lat: ne?.lat() ?? 0, lng: ne?.lng() ?? 0 },
+          sw: { lat: sw.lat(), lng: sw.lng() },
+          ne: { lat: ne.lat(), lng: ne.lng() },
         },
       };
       const resp = await fetch("/api/detect-roof", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        signal,
       });
+      if (signal.aborted) return;
       if (!resp.ok) {
         const errBody = (await resp.json().catch(() => ({}))) as {
           error?: string;
-          upstreamStatus?: number;
         };
         console.error("[detect] /api/detect-roof 오류 응답", {
           httpStatus: resp.status,
-          upstreamStatus: errBody.upstreamStatus,
           body: errBody,
         });
         throw new Error(errBody.error || `HTTP ${resp.status}`);
       }
       const data = (await resp.json()) as DetectResponse;
+      if (signal.aborted) return;
       if (data.polygons.length === 0) {
         const reasonLabel =
           data.reason === "low_confidence"
-            ? `bbox 신뢰도 미달(${data.bboxConfidence?.toFixed(3) ?? "?"} < 0.2)`
+            ? `신뢰도 미달(${data.bboxConfidence?.toFixed(3) ?? "?"})`
             : data.reason === "no_polygons"
-              ? `bbox는 잡혔으나(conf=${data.bboxConfidence?.toFixed(3) ?? "?"}) 폴리곤 0개`
+              ? `지붕 면을 식별하지 못함`
               : "사유 미보고";
         console.warn("[detect] 폴리곤 0개 반환", {
           reason: data.reason,
           bboxConfidence: data.bboxConfidence,
-          raw: data,
         });
         setError(`지붕을 찾지 못했습니다. (${reasonLabel}) 영역을 다시 선택하세요.`);
         return;
@@ -239,9 +260,15 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
       });
       setResult(data.polygons, captured);
     } catch (err) {
+      if (signal.aborted) return;
+      if (err instanceof DOMException && err.name === "AbortError") return;
       const msg = err instanceof Error ? err.message : "알 수 없는 오류";
       console.error("[detect] 분석 호출 실패", { error: err });
       setError(msg);
+    } finally {
+      if (detectAbortRef.current === controller) {
+        detectAbortRef.current = null;
+      }
     }
   }, [captured, previewImage, setError, setResult, setStatus]);
 
@@ -258,33 +285,25 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
     await waitForMapSettled(map);
   }, [map]);
 
-  const handleStartOrRestart = useCallback(async () => {
+  // Shared "return to region-select mode" path. Used for both the initial
+  // CTA click and the modal's "다시 선택" button — aborting any in-flight
+  // request is mandatory so the late response doesn't overwrite the new state.
+  const returnToSelecting = useCallback(async () => {
+    abortDetectIfRunning();
     await restoreOriginalCamera();
     startSelecting();
-  }, [restoreOriginalCamera, startSelecting]);
+  }, [abortDetectIfRunning, restoreOriginalCamera, startSelecting]);
 
-  const handleReselect = useCallback(async () => {
-    await restoreOriginalCamera();
-    startSelecting();
-  }, [restoreOriginalCamera, startSelecting]);
-
-  const handleFinalize = useCallback(async () => {
-    // Close the popup and return the map to its pre-zoom camera so the user
-    // can keep working with the surrounding context. Polygons are kept in
-    // context state for downstream consumers; the popup-only overlay disappears
-    // because PreviewModal stops rendering once status leaves success.
+  // Shared "done with this session" path. Used by both the success "확정"
+  // button and the idle "취소" button. Clears refs + aborts in-flight work
+  // and returns the map to its pre-zoom camera.
+  const endSession = useCallback(async () => {
+    abortDetectIfRunning();
     await restoreOriginalCamera();
     originalCameraRef.current = null;
     lastBoundsRef.current = null;
     reset();
-  }, [reset, restoreOriginalCamera]);
-
-  const handleReset = useCallback(async () => {
-    await restoreOriginalCamera();
-    originalCameraRef.current = null;
-    lastBoundsRef.current = null;
-    reset();
-  }, [reset, restoreOriginalCamera]);
+  }, [abortDetectIfRunning, reset, restoreOriginalCamera]);
 
   const busy =
     status === "zooming" ||
@@ -346,8 +365,8 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
             polygons={polygons}
             errorMessage={errorMessage}
             onConfirm={handleConfirm}
-            onCancel={handleReselect}
-            onFinalize={handleFinalize}
+            onCancel={returnToSelecting}
+            onFinalize={endSession}
             onPointChange={updatePolygonPoint}
           />
         )}
@@ -355,7 +374,7 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
         {showReset && (
           <button
             type="button"
-            onClick={handleReset}
+            onClick={endSession}
             className="flex items-center gap-2 bg-surface-container text-on-surface px-5 py-4 rounded-full shadow-xl border border-outline-variant/30 hover:bg-surface-container-high transition-all"
             aria-label="감지 결과 초기화"
           >
@@ -367,7 +386,7 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
         )}
         <button
           type="button"
-          onClick={handleStartOrRestart}
+          onClick={returnToSelecting}
           disabled={buttonDisabled}
           className="flex items-center gap-3 bg-primary text-on-primary px-8 py-4 rounded-full shadow-2xl hover:bg-primary-container transition-all transform hover:scale-105 group disabled:opacity-60 disabled:cursor-not-allowed"
         >

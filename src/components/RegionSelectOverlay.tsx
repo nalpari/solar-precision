@@ -43,9 +43,20 @@ function rectFromDrag(d: DragState): CapturedRect {
 }
 
 export function RegionSelectOverlay({ containerRef, onComplete }: Props) {
-  const { setError } = useDetection();
+  const { setError, reset } = useDetection();
   const layerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setDrag(null);
+      reset();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [reset]);
 
   const localCoords = useCallback(
     (clientX: number, clientY: number): [number, number] => {
@@ -101,6 +112,21 @@ export function RegionSelectOverlay({ containerRef, onComplete }: Props) {
     [drag, onComplete, setError],
   );
 
+  // pointercancel (OS gesture, context menu, tab switch) must NOT confirm the
+  // selection — treat it as an abandoned drag and reset the state.
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // already released
+      }
+      setDrag(null);
+    },
+    [drag],
+  );
+
   const [target, setTarget] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     setTarget(containerRef.current);
@@ -121,7 +147,7 @@ export function RegionSelectOverlay({ containerRef, onComplete }: Props) {
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
     >
       {!drag && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass-panel px-4 py-2.5 rounded-full border border-white/30 shadow-lg pointer-events-none">

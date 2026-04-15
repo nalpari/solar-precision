@@ -1,6 +1,7 @@
 // src/components/PreviewModal.tsx
 "use client";
 
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { DetectionStatus, SelectionSize } from "./DetectionContext";
 import type { DetectPolygon } from "@/lib/detect/schema";
@@ -46,6 +47,19 @@ export function PreviewModal({
   const isSuccess = status === "success";
   const isError = status === "error";
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      // Success → "확정"(close to idle); otherwise treat Esc as cancel so the
+      // user is never trapped during a long AI call.
+      if (isSuccess) onFinalize();
+      else onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isSuccess, onCancel, onFinalize]);
+
   const headerLabel = (() => {
     if (isCalling) return "AI 분석 중";
     if (isSuccess) return "지붕 면 인식 결과";
@@ -68,6 +82,14 @@ export function PreviewModal({
       role="dialog"
       aria-modal="true"
       aria-label="캡처 미리보기"
+      onClick={(e) => {
+        // Close only when the click lands on the backdrop itself, not inside
+        // the modal panel. Success → finalize so polygons are kept; otherwise
+        // cancel (which also aborts any in-flight analysis).
+        if (e.target !== e.currentTarget) return;
+        if (isSuccess) onFinalize();
+        else onCancel();
+      }}
     >
       <div className="glass-panel w-fit max-w-[calc(100vw-360px)] mx-4 p-5 rounded-2xl shadow-2xl border border-white/30 bg-surface-container max-h-[90vh] flex flex-col">
         <div className="flex items-center gap-2 mb-3">
@@ -126,10 +148,11 @@ export function PreviewModal({
           <button
             type="button"
             onClick={onCancel}
-            disabled={isCalling}
-            className="px-4 py-2.5 rounded-full text-sm font-headline font-bold text-on-surface bg-surface-container-high hover:bg-surface-container-highest transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            // Always enabled — including during `calling` — so the user can
+            // abort a long AI request. The parent aborts the in-flight fetch.
+            className="px-4 py-2.5 rounded-full text-sm font-headline font-bold text-on-surface bg-surface-container-high hover:bg-surface-container-highest transition-colors"
           >
-            다시 선택
+            {isCalling ? "분석 취소" : "다시 선택"}
           </button>
           {isSuccess ? (
             <button

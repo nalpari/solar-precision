@@ -21,7 +21,10 @@ import {
 
 export const runtime = "nodejs";
 
-type MediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+const MAX_REQUEST_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 25_000_000;
+
+type MediaType = "image/png" | "image/jpeg" | "image/webp";
 
 type ParsedDataUrl = {
   mediaType: MediaType;
@@ -29,9 +32,9 @@ type ParsedDataUrl = {
 };
 
 function parseDataUrl(dataUrl: string): ParsedDataUrl | null {
-  const match = /^data:(image\/(png|jpeg|webp|gif));base64,(.+)$/.exec(dataUrl);
-  if (!match) return null;
-  return { mediaType: match[1] as MediaType, base64: match[3] };
+  const m = /^data:(image\/(png|jpeg|webp));base64,(.+)$/.exec(dataUrl);
+  if (!m) return null;
+  return { mediaType: m[1] as MediaType, base64: m[3] };
 }
 
 function extractJsonPayload(text: string): string | null {
@@ -207,7 +210,11 @@ async function cropToBbox(
   bbox: [number, number, number, number],
 ): Promise<CropInfo> {
   const buffer = Buffer.from(source.base64, "base64");
-  const meta = await sharp(buffer).metadata();
+  const pipeline = sharp(buffer, {
+    limitInputPixels: MAX_IMAGE_PIXELS,
+    failOn: "error",
+  });
+  const meta = await pipeline.metadata();
   const W = meta.width;
   const H = meta.height;
   if (!W || !H) throw new Error("이미지 크기 메타데이터를 얻지 못했습니다.");
@@ -227,7 +234,10 @@ async function cropToBbox(
   const width = Math.max(1, Math.min(W - left, Math.round((px2 - px1) * W)));
   const height = Math.max(1, Math.min(H - top, Math.round((py2 - py1) * H)));
 
-  const out = await sharp(buffer)
+  const out = await sharp(buffer, {
+    limitInputPixels: MAX_IMAGE_PIXELS,
+    failOn: "error",
+  })
     .extract({ left, top, width, height })
     .png()
     .toBuffer();
@@ -304,6 +314,14 @@ export async function POST(req: Request) {
     );
   }
 
+  const declaredLen = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLen) && declaredLen > MAX_REQUEST_BYTES) {
+    return NextResponse.json(
+      { error: "Request body too large" },
+      { status: 413 },
+    );
+  }
+
   let body: DetectRequestBody;
   try {
     body = (await req.json()) as DetectRequestBody;
@@ -317,10 +335,17 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  // Defense-in-depth: enforce size even when Content-Length was absent/under-reported.
+  if (body.imageDataUrl.length > MAX_REQUEST_BYTES) {
+    return NextResponse.json(
+      { error: "Image too large" },
+      { status: 413 },
+    );
+  }
   const image = parseDataUrl(body.imageDataUrl);
   if (!image) {
     return NextResponse.json(
-      { error: "imageDataUrl must be a base64 data URL (png/jpeg/webp/gif)" },
+      { error: "imageDataUrl must be a base64 data URL (png/jpeg/webp)" },
       { status: 400 },
     );
   }
@@ -342,22 +367,27 @@ export async function POST(req: Request) {
     } catch (err2) {
       if (err2 instanceof ApiError) return respondWithUpstreamError(err2, "재시도");
       console.error("[detect-roof] 재시도 실패:", err2);
-      const message = err2 instanceof Error ? err2.message : "Unknown error";
-      return NextResponse.json({ error: message }, { status: 502 });
+      return NextResponse.json(
+        { error: "분석에 일시적으로 실패했습니다. 잠시 후 다시 시도하세요." },
+        { status: 502 },
+      );
     }
   }
 }
 
+// Keep provider-specific hints (model name, tier, key source) in server logs only.
+// The client response contains a generic message + status code so the UI can
+// differentiate rate-limit vs. service-down, without leaking the upstream provider
+// or deployment configuration.
 function respondWithUpstreamError(err: ApiError, stage: string) {
-  console.error(`[detect-roof] Gemini ${err.status} (${stage}):`, err.message);
-  const detail =
-    err.status === 403
-      ? "Gemini API permission denied. (1) AI Studio에서 발급한 키인지 확인 (2) 키 사용 중인 GCP 프로젝트에 Generative Language API가 활성화됐는지 확인 (3) gemini-3-pro-preview는 paid tier 필요 — 무료 키면 gemini-2.5-flash로 변경하세요."
-      : err.status === 429
-        ? "Gemini API rate limit. 잠시 후 재시도하세요."
-        : err.message;
-  return NextResponse.json(
-    { error: detail, upstreamStatus: err.status },
-    { status: err.status },
-  );
+  console.error(`[detect-roof] upstream ${err.status} (${stage}):`, err.message);
+  const clientMessage =
+    err.status === 429
+      ? "요청이 일시적으로 많습니다. 잠시 후 다시 시도하세요."
+      : err.status === 403 || err.status === 401
+        ? "서비스 설정 오류로 분석할 수 없습니다. 관리자에게 문의하세요."
+        : "분석 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도하세요.";
+  // Clamp upstream status to safe client-visible codes.
+  const clientStatus = err.status === 429 ? 429 : 502;
+  return NextResponse.json({ error: clientMessage }, { status: clientStatus });
 }

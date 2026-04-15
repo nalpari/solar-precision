@@ -37,6 +37,8 @@ const FACE_COLORS = [
 
 const colorFor = (i: number) => FACE_COLORS[i % FACE_COLORS.length];
 
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
 function centroid(pts: ReadonlyArray<readonly [number, number]>): [number, number] {
   const sum = pts.reduce<[number, number]>(
     (a, [x, y]) => [a[0] + x, a[1] + y],
@@ -60,8 +62,11 @@ export function PreviewPolygonEditor({
       const svg = svgRef.current;
       if (!svg) return null;
       const rect = svg.getBoundingClientRect();
-      const x = (clientX - rect.left) / rect.width;
-      const y = (clientY - rect.top) / rect.height;
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      // Dragging outside the SVG bounds must not produce out-of-range points —
+      // downstream consumers (Gemini re-analysis, serialization) assume [0,1].
+      const x = clamp01((clientX - rect.left) / rect.width);
+      const y = clamp01((clientY - rect.top) / rect.height);
       return [x, y];
     },
     [],
