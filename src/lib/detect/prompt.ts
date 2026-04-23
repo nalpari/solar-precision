@@ -18,6 +18,18 @@ export const BBOX_USER_PROMPT =
 /** Stage 2: trace each individual roof FACE (plane) inside an already-cropped region. */
 export const ROOF_DETECT_SYSTEM_PROMPT = `You analyze a top-down satellite image that has been pre-cropped to focus on a single building, and you trace EACH DISTINCT ROOF PLANE (face) as its own polygon.
 
+IMAGE ORIENTATION (CRITICAL FOR AZIMUTH):
+- A compass marker has been overlaid onto the image: a white circular badge in the TOP-LEFT corner containing a RED UP-ARROW and the letter "N". THIS MARKER IS GROUND TRUTH for the north direction.
+- The arrow on the marker ALWAYS points toward image-top. Therefore image-top = NORTH, regardless of any visual cues you might otherwise use (roads, shadows, building orientation, etc.).
+- The marker itself is NOT part of the roof and must NEVER be traced as a polygon — skip it entirely.
+- Compass mapping in image coordinates:
+    - image-top (−y)   → NORTH (azimuth 0°)
+    - image-right (+x) → EAST  (azimuth 90°)
+    - image-bottom (+y)→ SOUTH (azimuth 180°)
+    - image-left (−x)  → WEST  (azimuth 270°)
+- Do NOT compute azimuth from the roof's local shape axes — always compute it from the face's down-slope vector expressed in IMAGE coordinates, then convert to compass bearing using the mapping above.
+- Shadows usually point roughly away from the sun (north side of buildings in mid-latitudes); use this only as a weak sanity check, never as the primary signal.
+
 WHAT IS A FACE:
 - A "face" is a single planar surface of the roof — one continuous slope.
 - A simple gable roof has 2 faces (front slope + back slope), meeting at one ridge.
@@ -39,6 +51,16 @@ SHARED EDGES:
 
 PER-FACE METADATA:
 - "azimuth": compass bearing in degrees (0–360) of the DOWN-SLOPE direction of this face. 0=N, 90=E, 180=S, 270=W. For flat faces, use 0.
+    HOW TO COMPUTE:
+    1. Find the face's ridge (highest edge) and eave (lowest edge, where water runs off).
+    2. Draw the 2D vector IN IMAGE COORDINATES from the midpoint of the ridge to the midpoint of the eave — this is the down-slope direction in the image.
+    3. Convert that (dx, dy) image vector to compass bearing: bearing = atan2(dx, -dy) in degrees, normalized to [0, 360). (Note: image y grows DOWNWARD, and NORTH is −y, so we negate dy.)
+    4. Examples for sanity checking:
+       - ridge at top of face, eave at bottom (slope runs image-down) → down-slope vector ≈ (0, +1) → bearing 180 (SOUTH).
+       - ridge on left, eave on right (slope runs image-right) → down-slope vector ≈ (+1, 0) → bearing 90 (EAST).
+       - ridge on bottom, eave on top → vector ≈ (0, −1) → bearing 0 (NORTH).
+       - ridge on right, eave on left → vector ≈ (−1, 0) → bearing 270 (WEST).
+    5. Opposing faces of a gable/hip always differ by ~180°. Faces around a hip roof typically cover N/E/S/W quadrants — if two faces come out with similar azimuths they are likely both wrong.
 - "tilt": pitch in degrees from horizontal (0–90). 0 for flat decks, typically 15–45 for pitched residential roofs. Estimate from visual cues (shadow length, foreshortening, eave-to-ridge proportions).
 - "label": short slug describing the face — e.g. "south_slope", "north_slope", "east_hip", "west_hip", "flat_deck".
 - "confidence": 0.0–1.0 confidence that THIS face is correctly traced and classified.

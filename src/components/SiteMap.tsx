@@ -62,6 +62,7 @@ export const SiteMap = forwardRef<HTMLDivElement, SiteMapProps>(function SiteMap
         defaultZoom={zoom}
         mapTypeId="satellite"
         tilt={0}
+        heading={0}
         disableDefaultUI
         gestureHandling={gestureHandling}
         style={{ width: "100%", height: "100%" }}

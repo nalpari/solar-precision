@@ -18,6 +18,7 @@ import {
   ROOF_DETECT_SYSTEM_PROMPT,
   ROOF_DETECT_USER_PROMPT,
 } from "@/lib/detect/prompt";
+import { buildNorthMarker } from "@/lib/detect/overlay";
 
 export const runtime = "nodejs";
 
@@ -239,6 +240,7 @@ async function cropToBbox(
     failOn: "error",
   })
     .extract({ left, top, width, height })
+    .composite([buildNorthMarker(width, height)])
     .png()
     .toBuffer();
 

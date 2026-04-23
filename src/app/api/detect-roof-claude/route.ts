@@ -8,6 +8,7 @@ import {
   type DetectResponse,
 } from "@/lib/detect/schema";
 import { BBOX_CROP_PADDING } from "@/lib/detect/prompt";
+import { buildNorthMarker } from "@/lib/detect/overlay";
 import {
   locateBboxClaude,
   tracePolygonClaude,
@@ -65,6 +66,7 @@ async function cropToBbox(
     failOn: "error",
   })
     .extract({ left, top, width, height })
+    .composite([buildNorthMarker(width, height)])
     .png()
     .toBuffer();
 

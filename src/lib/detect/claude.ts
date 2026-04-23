@@ -93,11 +93,18 @@ async function callClaudeTool<T>(
   inputSchema: Record<string, unknown>,
   validate: ToolResultValidator<T>,
   maxTokens: number,
+  effort: "low" | "medium" | "high" | "xhigh" | "max",
 ): Promise<T> {
+  // Claude 4.7: extended thinking uses `adaptive` + `output_config.effort`.
+  // API rejects any forced tool_choice (`tool`/`any`) alongside thinking —
+  // must be `auto`, so prompt must push the model to actually call the tool.
+  const toolInstruction = `You MUST call the \`${toolName}\` tool to respond. Do not produce any plain text. The tool call is the only valid response.`;
   const response = await client.messages.create({
     model: CLAUDE_DETECT_MODEL,
     max_tokens: maxTokens,
-    system: systemPrompt,
+    thinking: { type: "adaptive" },
+    output_config: { effort },
+    system: `${systemPrompt}\n\n${toolInstruction}`,
     tools: [
       {
         name: toolName,
@@ -105,7 +112,7 @@ async function callClaudeTool<T>(
         input_schema: inputSchema as Anthropic.Tool["input_schema"],
       },
     ],
-    tool_choice: { type: "tool", name: toolName },
+    tool_choice: { type: "auto" },
     messages: [
       {
         role: "user",
@@ -118,7 +125,7 @@ async function callClaudeTool<T>(
               data: image.base64,
             },
           },
-          { type: "text", text: userPrompt },
+          { type: "text", text: `${userPrompt}\n\nRespond by calling the \`${toolName}\` tool.` },
         ],
       },
     ],
@@ -165,7 +172,9 @@ export async function locateBboxClaude(
       }
       return { success: true, data: v.data };
     },
-    1024,
+    // Adaptive thinking + small JSON output — bbox response is tiny (~50 tokens).
+    6000,
+    "medium",
   );
 }
 
@@ -193,6 +202,8 @@ export async function tracePolygonClaude(
       }
       return { success: true, data: v.data };
     },
-    8192,
+    // Multi-face polygon JSON can be large; adaptive thinking budgets itself.
+    16000,
+    "high",
   );
 }
