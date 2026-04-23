@@ -221,7 +221,15 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
           ne: { lat: ne.lat(), lng: ne.lng() },
         },
       };
-      const resp = await fetch("/api/detect-roof", {
+      // PoC provider toggle: `?provider=claude` routes to the Claude (Opus 4.7)
+      // pipeline for A/B comparison against the default Gemini implementation.
+      const provider =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("provider")
+          : null;
+      const endpoint =
+        provider === "claude" ? "/api/detect-roof-claude" : "/api/detect-roof";
+      const resp = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -232,7 +240,7 @@ export function AutoDetectButton({ mapContainerRef }: Props) {
         const errBody = (await resp.json().catch(() => ({}))) as {
           error?: string;
         };
-        console.error("[detect] /api/detect-roof 오류 응답", {
+        console.error(`[detect] ${endpoint} 오류 응답`, {
           httpStatus: resp.status,
           body: errBody,
         });
