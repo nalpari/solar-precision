@@ -80,6 +80,7 @@ async function callGeminiJson<T>(
       responseMimeType: "application/json",
       responseSchema,
       maxOutputTokens,
+      thinkingConfig: { thinkingBudget: 0 },
     },
   });
 
