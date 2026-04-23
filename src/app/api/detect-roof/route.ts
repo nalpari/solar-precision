@@ -58,7 +58,15 @@ async function callGeminiJson<T>(
   validate: (parsed: unknown) =>
     | { success: true; data: T }
     | { success: false; error: string },
-  maxOutputTokens: number = 2048,
+  // NOTE: on Gemini 3.1 Pro this budget covers **thinking + output**.
+  // Observed thinking alone was ~1.6K for bbox and ~5K for polygon on a
+  // simple building, and scales ~2–3× for complex roofs — keep generous
+  // headroom to avoid MAX_TOKENS truncation mid-JSON.
+  maxOutputTokens: number = 4096,
+  // Cap thinking to trade a little reasoning depth for substantial latency
+  // savings. Gemini 3.1 Pro rejects budget=0 but accepts positive caps;
+  // the model will still think, just stop sooner.
+  thinkingBudget: number = 1024,
 ): Promise<T> {
   const response = await client.models.generateContent({
     model: DETECT_MODEL,
@@ -81,13 +89,31 @@ async function callGeminiJson<T>(
       responseMimeType: "application/json",
       responseSchema,
       maxOutputTokens,
-      thinkingConfig: { thinkingBudget: 0 },
+      thinkingConfig: { thinkingBudget },
     },
+  });
+
+  const finishReason = response.candidates?.[0]?.finishReason;
+  const usage = response.usageMetadata;
+  const textLength = response.text?.length ?? 0;
+  // Diagnostic — correlates failures with model-reported finish state.
+  // Ref: docs/investigations/2026-04-23-gemini-detect-502-analysis.md §5.2
+  console.info("[detect-roof] gemini response", {
+    model: DETECT_MODEL,
+    maxOutputTokens,
+    finishReason,
+    textLength,
+    promptTokens: usage?.promptTokenCount,
+    candidatesTokens: usage?.candidatesTokenCount,
+    thinkingTokens: usage?.thoughtsTokenCount,
+    totalTokens: usage?.totalTokenCount,
   });
 
   const text = response.text;
   if (!text) {
-    throw new Error("Gemini가 텍스트 응답을 반환하지 않았습니다.");
+    throw new Error(
+      `Gemini가 텍스트 응답을 반환하지 않았습니다. (finishReason=${finishReason ?? "unknown"})`,
+    );
   }
   const payload = extractJsonPayload(text);
   if (!payload) {
@@ -196,8 +222,12 @@ async function tracePolygon(
       }
       return { success: true, data: v.data };
     },
-    // Multi-face JSON is larger than a single-polygon response; give Gemini headroom.
-    8192,
+    // Multi-face polygons + Gemini 3.1's mandatory thinking can easily burn
+    // 10–15K tokens on complex roofs; 32K leaves room on both axes without
+    // approaching the 65K model cap.
+    32768,
+    // Polygon tracing deserves more reasoning budget than a simple bbox.
+    4096,
   );
 }
 
