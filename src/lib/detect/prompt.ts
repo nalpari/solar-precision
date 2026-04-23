@@ -77,7 +77,7 @@ OUTPUT REQUIREMENTS:
 export const ROOF_DETECT_USER_PROMPT =
   "Identify every distinct roof face in this cropped satellite image and trace each as its own polygon with azimuth and tilt, following the JSON schema exactly.";
 
-export const DETECT_MODEL = "gemini-3-pro-preview";
+export const DETECT_MODEL = "gemini-3.1-pro-preview";
 
 /** Padding (fraction of bbox side length) added when cropping for stage 2.
  *  Generous padding prevents the model from snapping vertices to the crop edge
